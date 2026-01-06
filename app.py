@@ -4,7 +4,7 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import re
 import base64
-from svgutils.transform import fromfile
+import os
 
 # --- HELPER FUNCTIONS ---
 def extract_app_id(play_store_url):
@@ -33,13 +33,23 @@ def create_rounded_rectangle_mask(size, radius):
     draw.rounded_rectangle([(0, 0), size], radius=radius, fill=255)
     return mask
 
-def load_badge_from_svg(file_path, width=540):
+def load_badge_from_file(file_path, width=540):
     try:
-        # Convert SVG to PNG using svgutils
-        svg = fromfile(file_path)
-        svg.set_size((f"{width}px", ""))  # Maintain aspect ratio
-        png_data = svg.to_png()
-        return Image.open(BytesIO(png_data))
+        # First try to open as PNG (if you've pre-converted the SVGs)
+        if file_path.endswith('.png'):
+            return Image.open(file_path).resize((width, int(width * (3/14))), Image.Resampling.LANCZOS)
+
+        # If you want to keep using SVGs, you'll need to convert them to PNG first
+        # For now, we'll fall back to downloading the badges
+        if "App_Store" in file_path:
+            url = 'https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us'
+        else:
+            url = 'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png'
+
+        response = requests.get(url, timeout=10)
+        badge = Image.open(BytesIO(response.content))
+        aspect_ratio = badge.height / badge.width
+        return badge.resize((width, int(width * aspect_ratio)), Image.Resampling.LANCZOS)
     except Exception as e:
         st.error(f"Failed to load badge: {e}")
         return None
@@ -68,20 +78,30 @@ def generate_ctv_tile(app_name, play_store_url=None):
             fill='#E0E0E0'
         )
 
-    # Text rendering
+    # Text rendering with improved font handling
     display_name = app_name.upper()
     try:
+        # Try to use a better font if available
         font = ImageFont.truetype("arial.ttf", 72)
     except IOError:
-        font = ImageFont.load_default()
+        try:
+            # Try another common font
+            font = ImageFont.truetype("DejaVuSans.ttf", 72)
+        except IOError:
+            font = ImageFont.load_default()
 
-    draw.text((icon_x, icon_y + icon_size + 72), display_name, fill='#1A1A1A', font=font)
+    # Calculate text position for better centering
+    text_bbox = draw.textbbox((0, 0), display_name, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_x = icon_x + (icon_size - text_width) // 2
+    text_y = icon_y + icon_size + 72
+    draw.text((text_x, text_y), display_name, fill='#1A1A1A', font=font)
 
-    # Load badges from local files
-    as_badge = load_badge_from_svg("Download_on_the_App_Store_Badge_US-UK_RGB_blk_092917.svg", width=540)
-    gp_badge = load_badge_from_svg("GetItOnGooglePlay_Badge_Web_color_English.svg", width=540)
+    # Badges - using the fallback download method
+    as_badge = load_badge_from_file("app_store", width=540)
+    gp_badge = load_badge_from_file("google_play", width=540)
 
-    badge_x = 1260
+    badge_x = WIDTH - 580  # Position badges more to the right
     if as_badge:
         canvas.paste(as_badge, (badge_x, 240), as_badge if as_badge.mode == 'RGBA' else None)
     if gp_badge:
@@ -93,43 +113,44 @@ def generate_ctv_tile(app_name, play_store_url=None):
 st.set_page_config(page_title="CTV Tile Generator", page_icon="📺", layout="wide")
 st.title("📺 CTV App Marketing Tile Generator")
 st.markdown("""
-    Generate **professional 1920x1080 Full HD tiles** for Connected TV advertising.
-    Enter your app name and optionally provide a Google Play Store URL to fetch the app icon.
+    Generate professional 1920×1080 Full HD tiles for Connected TV advertising.
+
+    **Instructions:**
+    1. Enter your app name
+    2. (Optional) Provide a Google Play Store URL to fetch your app icon
+    3. Click "Generate Tile"
+    4. Download your custom CTV marketing tile
 """)
 
 with st.sidebar:
     st.header("Settings")
+    app_name = st.text_input("App Name", placeholder="My Awesome App")
+    play_url = st.text_input("Google Play Store URL (Optional)",
+                            placeholder="https://play.google.com/store/apps/details?id=com.example.app")
+
     st.markdown("---")
-    app_name = st.text_input("App Name", placeholder="Enter your app name here")
-    play_url = st.text_input("Play Store URL (Optional)", placeholder="e.g., https://play.google.com/store/apps/details?id=com.example.app")
-    st.markdown("---")
-    st.caption("Leave the Play Store URL empty if you don't want to include an app icon.")
+    st.caption("Tip: For best results, use your app's exact name as it appears in stores")
     generate_btn = st.button("Generate Tile", type="primary")
 
 if generate_btn:
     if not app_name:
-        st.error("Please enter an app name.")
+        st.error("Please enter an app name")
     else:
         with st.spinner("Creating your high-resolution tile..."):
             result_img = generate_ctv_tile(app_name, play_url)
 
+            # Display the image
             buf = BytesIO()
-            result_img.save(buf, format="PNG", optimize=False, quality=100)
+            result_img.save(buf, format="PNG", quality=100)
             byte_im = buf.getvalue()
 
-            image_b64 = base64.b64encode(byte_im).decode()
-            st.markdown(
-                f"<img style='max-width: 100%; height: auto;' src='data:image/png;base64, {image_b64}' alt='Generated CTV Tile'/>",
-                unsafe_allow_html=True
-            )
+            st.image(byte_im, use_column_width=True)
+            st.caption("Generated Tile: 1920×1080 Full HD (CTV Standard)")
 
-            st.caption("Generated Tile: 1920x1080 Full HD (CTV Standard)")
-
+            # Download button
             st.download_button(
-                label="📥 Download PNG (1920x1080)",
+                label="⬇️ Download PNG (1920×1080)",
                 data=byte_im,
                 file_name=f"{app_name.lower().replace(' ', '_')}_ctv_tile.png",
                 mime="image/png"
             )
-
-
