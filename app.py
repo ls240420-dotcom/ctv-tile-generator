@@ -4,9 +4,9 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import re
 import base64
+from svgutils.transform import fromfile
 
 # --- HELPER FUNCTIONS ---
-
 def extract_app_id(play_store_url):
     match = re.search(r'id=([^&]+)', play_store_url)
     return match.group(1) if match else None
@@ -33,22 +33,19 @@ def create_rounded_rectangle_mask(size, radius):
     draw.rounded_rectangle([(0, 0), size], radius=radius, fill=255)
     return mask
 
-def download_official_badge(badge_type, width=540):
-    urls = {
-        'app_store': 'https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us',
-        'google_play': 'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png'
-    }
+def load_badge_from_svg(file_path, width=540):
     try:
-        response = requests.get(urls[badge_type], timeout=10)
-        badge = Image.open(BytesIO(response.content))
-        aspect_ratio = badge.height / badge.width
-        return badge.resize((width, int(width * aspect_ratio)), Image.Resampling.LANCZOS)
+        # Convert SVG to PNG using svgutils
+        svg = fromfile(file_path)
+        svg.set_size((f"{width}px", ""))  # Maintain aspect ratio
+        png_data = svg.to_png()
+        return Image.open(BytesIO(png_data))
     except Exception as e:
-        st.error(f"Failed to download {badge_type} badge: {e}")
+        st.error(f"Failed to load badge: {e}")
         return None
 
 def generate_ctv_tile(app_name, play_store_url=None):
-    WIDTH, HEIGHT = 480, 270
+    WIDTH, HEIGHT = 1920, 1080
     canvas = Image.new('RGB', (WIDTH, HEIGHT), '#F8F8F8')
     draw = ImageDraw.Draw(canvas)
 
@@ -71,19 +68,18 @@ def generate_ctv_tile(app_name, play_store_url=None):
             fill='#E0E0E0'
         )
 
-    # Text rendering with improved font handling
+    # Text rendering
     display_name = app_name.upper()
     try:
-        # Use a better font if available
         font = ImageFont.truetype("arial.ttf", 72)
     except IOError:
         font = ImageFont.load_default()
 
     draw.text((icon_x, icon_y + icon_size + 72), display_name, fill='#1A1A1A', font=font)
 
-    # Badges
-    as_badge = download_official_badge('app_store', width=540)
-    gp_badge = download_official_badge('google_play', width=540)
+    # Load badges from local files
+    as_badge = load_badge_from_svg("Download_on_the_App_Store_Badge_US-UK_RGB_blk_092917.svg", width=540)
+    gp_badge = load_badge_from_svg("GetItOnGooglePlay_Badge_Web_color_English.svg", width=540)
 
     badge_x = 1260
     if as_badge:
@@ -97,7 +93,7 @@ def generate_ctv_tile(app_name, play_store_url=None):
 st.set_page_config(page_title="CTV Tile Generator", page_icon="📺", layout="wide")
 st.title("📺 CTV App Marketing Tile Generator")
 st.markdown("""
-    Generate **professional 480x270 Full HD tiles** for Connected TV advertising.
+    Generate **professional 1920x1080 Full HD tiles** for Connected TV advertising.
     Enter your app name and optionally provide a Google Play Store URL to fetch the app icon.
 """)
 
@@ -135,4 +131,5 @@ if generate_btn:
                 file_name=f"{app_name.lower().replace(' ', '_')}_ctv_tile.png",
                 mime="image/png"
             )
+
 
