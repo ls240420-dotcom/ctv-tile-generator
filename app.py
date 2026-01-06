@@ -3,13 +3,11 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import requests
 import re
-import base64
-import cairosvg  # For SVG to PNG conversion (install with: pip install cairosvg)
 
 # --- Constants ---
 TILE_WIDTH, TILE_HEIGHT = 480, 270  # CTV standard (16:9)
 ICON_SIZE = int(TILE_HEIGHT * 0.7)  # Icon fills ~70% of height
-BADGE_WIDTH = 180  # Width for each badge (fits both side-by-side)
+BADGE_WIDTH = 180  # Width for each badge
 
 # --- Helper Functions ---
 def extract_app_id(play_store_url):
@@ -38,41 +36,31 @@ def create_rounded_rectangle_mask(size, radius):
     draw.rounded_rectangle([(0, 0), size], radius=radius, fill=255)
     return mask
 
-def load_app_store_badge(width=BADGE_WIDTH):
+def load_badge(badge_type, width=BADGE_WIDTH):
     try:
-        # Convert SVG to PNG using cairosvg
-        cairosvg.svg2png(
-            url="Download_on_the_App_Store_Badge_US-UK_RGB_blk_092917.svg",
-            write_to="app_store_badge_temp.png",
-            output_width=width * 2  # 2x for high-res
-        )
-        return Image.open("app_store_badge_temp.png")
+        # Load your pre-converted PNG badges
+        filename = {
+            'app_store': "Download_on_the_App_Store_Badge_US-UK_RGB_blk_092917.png",
+            'google_play': "GetItOnGooglePlay_Badge_Web_color_English.png"
+        }[badge_type]
+        badge = Image.open(filename)
+        aspect_ratio = badge.height / badge.width
+        return badge.resize((width * 2, int(width * 2 * aspect_ratio)), Image.Resampling.LANCZOS)
     except Exception as e:
-        st.error(f"Failed to load App Store badge: {e}. Using fallback.")
-        # Fallback: Download from Apple
-        url = 'https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us'
-        response = requests.get(url, timeout=10)
-        badge = Image.open(BytesIO(response.content))
-        aspect_ratio = badge.height / badge.width
-        return badge.resize((width * 2, int(width * 2 * aspect_ratio)), Image.Resampling.LANCZOS)
-
-def load_google_play_badge(width=BADGE_WIDTH):
-    try:
-        # Use local PNG (pre-converted from your SVG)
-        badge = Image.open("google_play_badge.png")
-        aspect_ratio = badge.height / badge.width
-        return badge.resize((width * 2, int(width * 2 * aspect_ratio)), Image.Resampling.LANCZOS)
-    except:
-        # Fallback: Download from Google
-        url = 'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png'
-        response = requests.get(url, timeout=10)
+        st.error(f"Failed to load {badge_type} badge: {e}. Using fallback.")
+        # Fallback to official badges if local files fail
+        urls = {
+            'app_store': 'https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/en-us',
+            'google_play': 'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png'
+        }
+        response = requests.get(urls[badge_type], timeout=10)
         badge = Image.open(BytesIO(response.content))
         aspect_ratio = badge.height / badge.width
         return badge.resize((width * 2, int(width * 2 * aspect_ratio)), Image.Resampling.LANCZOS)
 
 def generate_ctv_tile(app_name, play_store_url=None):
     # Render at 2x resolution for sharpness, then downsample
-    canvas = Image.new('RGB', (TILE_WIDTH * 2, TILE_HEIGHT * 2), '#F8F8F8')
+    canvas = Image.new('RGB', (TILE_WIDTH * 2, TILE_HEIGHT * 2), '#F8F8F8')  # Light gray background
     draw = ImageDraw.Draw(canvas)
 
     # --- Icon (Left Side) ---
@@ -88,17 +76,17 @@ def generate_ctv_tile(app_name, play_store_url=None):
         rounded_icon.putalpha(mask)
         canvas.paste(rounded_icon, (icon_x, icon_y), rounded_icon)
     else:
-        # Placeholder (Kalshi green)
+        # Placeholder (Kalshi green as default)
         draw.rounded_rectangle(
             [(icon_x, icon_y), (icon_x + icon_size, icon_y + icon_size)],
             radius=int(icon_size * 0.22),
-            fill='#00D4AA'
+            fill='#00D4AA'  # Kalshi's brand color
         )
 
     # --- App Name (Centered Under Icon) ---
     display_name = app_name.upper()
     try:
-        font = ImageFont.truetype("arialbd.ttf", 40 * 2)  # 2x font size for high-res
+        font = ImageFont.truetype("arialbd.ttf", 40 * 2)  # Bold font for CPI emphasis
     except:
         font = ImageFont.load_default()
     text_bbox = draw.textbbox((0, 0), display_name, font=font)
@@ -107,8 +95,8 @@ def generate_ctv_tile(app_name, play_store_url=None):
     draw.text((text_x, icon_y + icon_size + 20 * 2), display_name, fill='black', font=font)
 
     # --- Badges (Right Side, Stacked Vertically) ---
-    as_badge = load_app_store_badge()
-    gp_badge = load_google_play_badge()
+    as_badge = load_badge('app_store')
+    gp_badge = load_badge('google_play')
 
     badge_x = TILE_WIDTH * 2 - BADGE_WIDTH * 2 - 20 * 2
     if as_badge:
@@ -129,13 +117,13 @@ def generate_ctv_tile(app_name, play_store_url=None):
     return canvas
 
 # --- Streamlit UI ---
-st.set_page_config(page_title="Samsung Ads CTV Tile Generator (480×270)", layout="wide")
-st.title("📺 CTV Tile Generator (480×270, High-Res)")
-st.markdown("""
-    **For Samsung Ads CTV-to-Mobile CPI Campaigns**
+st.set_page_config(page_title="Samsung Ads CTV Tile Generator", page_icon="📺", layout="wide")
+st.title("📺 Samsung Ads CTV Tile Generator (480×270)")
+st.markdown(f"""
+    **For Your CTV-to-Mobile CPI Campaigns**
     - **480×270 resolution** (16:9 standard for CTV).
-    - Includes **App Store + Google Play badges** (no URLs needed after icon fetch).
-    - Optimized for **CPI conversions** (tap-to-install emphasis).
+    - Optimized for **high conversions** on Samsung Ads.
+    - Includes **App Store + Google Play badges** (using your PNG files).
 """)
 
 with st.sidebar:
@@ -161,7 +149,8 @@ if generate_btn:
             st.download_button(
                 label="⬇ Download PNG",
                 data=buf.getvalue(),
-                file_name=f"{app_name.lower().replace(' ', '_')}_ctv_tile_480x270.png",
+                file_name=f"{app_name.lower().replace(' ', '_')}_ctv_tile.png",
                 mime="image/png"
             )
-            st.success("✅ High-res tile generated! Optimized for Samsung Ads CTV inventory.")
+            st.success("✅ Tile generated! Optimized for CPI conversions on Samsung Ads.")
+
