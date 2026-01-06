@@ -48,7 +48,7 @@ def download_official_badge(badge_type, width=540):
         return None
 
 def generate_ctv_tile(app_name, play_store_url=None):
-    WIDTH, HEIGHT = 1920, 1080
+    WIDTH, HEIGHT = 480, 270
     canvas = Image.new('RGB', (WIDTH, HEIGHT), '#F8F8F8')
     draw = ImageDraw.Draw(canvas)
 
@@ -97,7 +97,7 @@ def generate_ctv_tile(app_name, play_store_url=None):
 st.set_page_config(page_title="CTV Tile Generator", page_icon="📺", layout="wide")
 st.title("📺 CTV App Marketing Tile Generator")
 st.markdown("""
-    Generate **professional 1920x1080 Full HD tiles** for Connected TV advertising.
+    Generate **professional 480x270 Full HD tiles** for Connected TV advertising.
     Enter your app name and optionally provide a Google Play Store URL to fetch the app icon.
 """)
 
