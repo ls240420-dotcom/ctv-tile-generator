@@ -58,6 +58,19 @@ def load_badge(badge_type, width=BADGE_WIDTH):
         aspect_ratio = badge.height / badge.width
         return badge.resize((width * 2, int(width * 2 * aspect_ratio)), Image.Resampling.LANCZOS)
 
+def get_font(size):
+    # Try to use a bold system font as fallback
+    try:
+        return ImageFont.truetype("arial.ttf", size)  # Try regular Arial first
+    except:
+        try:
+            return ImageFont.truetype("DejaVuSans-Bold.ttf", size)  # Common Linux font
+        except:
+            try:
+                return ImageFont.truetype("HelveticaNeue-Bold.ttf", size)  # Mac font
+            except:
+                return ImageFont.load_default()  # Final fallback
+
 def generate_ctv_tile(app_name, play_store_url=None):
     # Render at 2x resolution for sharpness, then downsample
     canvas = Image.new('RGB', (TILE_WIDTH * 2, TILE_HEIGHT * 2), '#F8F8F8')  # Light gray background
@@ -86,7 +99,7 @@ def generate_ctv_tile(app_name, play_store_url=None):
     # --- App Name (Centered Under Icon) ---
     display_name = app_name.upper()
     try:
-        font = ImageFont.truetype("arialbd.ttf", 40 * 2)  # Bold font for CPI emphasis
+        font = get_font(40 * 2)  # Use our robust font loader
     except:
         font = ImageFont.load_default()
     text_bbox = draw.textbbox((0, 0), display_name, font=font)
@@ -106,7 +119,7 @@ def generate_ctv_tile(app_name, play_store_url=None):
 
     # --- CPI-Focused CTA ---
     cta = "TAP TO INSTALL"
-    cta_font = ImageFont.truetype("arialbd.ttf", 20 * 2) if "arialbd.ttf" in ImageFont.list() else ImageFont.load_default()
+    cta_font = get_font(20 * 2)  # Use our robust font loader
     cta_bbox = draw.textbbox((0, 0), cta, font=cta_font)
     cta_width = cta_bbox[2] - cta_bbox[0]
     cta_x = badge_x + (BADGE_WIDTH * 2 - cta_width) // 2
@@ -153,4 +166,3 @@ if generate_btn:
                 mime="image/png"
             )
             st.success("✅ Tile generated! Optimized for CPI conversions on Samsung Ads.")
-
